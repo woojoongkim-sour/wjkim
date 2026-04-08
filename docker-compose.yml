@@ -1,0 +1,85 @@
+version: '3.7'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: msp_archive
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  app:
+    build: .
+    command: poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./app:/app/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/msp_archive
+      SYNC_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/msp_archive
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SECRET_KEY: dev-secret-key-change-in-production
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - minio
+      - redis
+
+  celery:
+    build: .
+    command: poetry run celery -A app.workers.celery_app worker --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/msp_archive
+      SYNC_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/msp_archive
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+      - minio
+      - redis
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - app
+
+volumes:
+  postgres_data:
+  minio_data:
+  redis_data:
