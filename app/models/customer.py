@@ -22,6 +22,9 @@ class Customer(Base):
     services = relationship("Service", back_populates="customer")
     event_occurrences = relationship("EventOccurrence", back_populates="customer")
     incident_cases = relationship("IncidentCase", back_populates="customer")
+    users = relationship("User", back_populates="customer")
+    imap_accounts = relationship("ImapAccount", back_populates="customer")
+    aliases = relationship("CustomerAlias", back_populates="customer")
 
 
 class Server(Base):

@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import init_db
 import app.models  # noqa: F401 — register all models before init_db
 from app.api import customers, documents, events, search, chat, audit, incident
+from app.api import auth, hybrid_search, email, documents_v2
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
@@ -66,13 +67,16 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(customers.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(documents_v2.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
-app.include_router(search.router, prefix="/api/v1")
+app.include_router(hybrid_search.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(incident.router, prefix="/api/v1")
+app.include_router(email.router, prefix="/api/v1")
 
 
 @app.get("/health")

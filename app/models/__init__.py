@@ -8,7 +8,7 @@ from app.models.associations import (  # noqa: F401
 from app.models.enums import *  # noqa: F401, F403
 from app.models.customer import Customer, Server, Service  # noqa: F401
 from app.models.document import (  # noqa: F401
-    Document, ManualRefinedDocument, DocumentChunk,
+    DocumentCategory, Document, ManualRefinedDocument, DocumentChunk,
     DocumentProcessingAttempt, DocumentRelation,
 )
 from app.models.event import (  # noqa: F401
@@ -16,3 +16,4 @@ from app.models.event import (  # noqa: F401
     EventAssessment, MetricLogEvidence, IncidentCase,
 )
 from app.models.audit import AuditLog, SanitizedKnowledge  # noqa: F401
+from app.models.chat import Conversation, Message  # noqa: F401

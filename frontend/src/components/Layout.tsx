@@ -20,6 +20,14 @@ export default function Layout() {
             대시보드
           </NavLink>
           <NavLink
+            to="/documents"
+            className={({ isActive }) =>
+              `px-3 py-2 rounded ${isActive ? 'bg-slate-600 font-medium' : 'hover:bg-slate-700'}`
+            }
+          >
+            문서 관리
+          </NavLink>
+          <NavLink
             to="/events"
             className={({ isActive }) =>
               `px-3 py-2 rounded ${isActive ? 'bg-slate-600 font-medium' : 'hover:bg-slate-700'}`

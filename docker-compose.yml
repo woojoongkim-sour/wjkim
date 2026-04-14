@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   postgres:
-    image: postgres:16-alpine
+    build: ./docker/postgres
     environment:
       POSTGRES_DB: msp_archive
       POSTGRES_USER: postgres
@@ -11,6 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
 
   minio:
     image: minio/minio:latest
@@ -31,6 +32,21 @@ services:
     volumes:
       - redis_data:/data
 
+  embedding:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    command: --model-id BAAI/bge-m3 --port 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - embedding_models:/data
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ""
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports:
+      - "3001:3000"
+
   app:
     build: .
     command: poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -47,12 +63,16 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       SECRET_KEY: dev-secret-key-change-in-production
+      EMBEDDING_API_URL: http://embedding:8080
+      GOTENBERG_URL: http://gotenberg:3000
     ports:
       - "8000:8000"
     depends_on:
       - postgres
       - minio
       - redis
+      - embedding
+      - gotenberg
 
   celery:
     build: .
@@ -67,10 +87,14 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMBEDDING_API_URL: http://embedding:8080
+      GOTENBERG_URL: http://gotenberg:3000
     depends_on:
       - postgres
       - minio
       - redis
+      - embedding
+      - gotenberg
 
   frontend:
     build: ./frontend
@@ -83,3 +107,4 @@ volumes:
   postgres_data:
   minio_data:
   redis_data:
+  embedding_models:
