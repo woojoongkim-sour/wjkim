@@ -1,24 +1,28 @@
-from app.workers.celery_app import celery_app
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from app.models.document import Document
-from app.core.config import settings
 import asyncio
+import logging
+from app.workers.celery_app import celery_app
+from app.core.config import settings
 
-engine = create_engine(settings.SYNC_DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="process_document")
-def process_document_task(document_id: int):
-    from app.services.document_processor import DocumentProcessor
-    
-    session = SessionLocal()
+@celery_app.task(name="process_document", bind=True, max_retries=3)
+def process_document_task(self, document_id: int):
+    """Process uploaded document: extract text, chunk, embed."""
     try:
+        asyncio.run(_process_document(document_id))
+    except Exception as e:
+        logger.error(f"Document processing failed for {document_id}: {e}")
+        raise self.retry(exc=e, countdown=30)
+
+
+async def _process_document(document_id: int):
+    from app.core.database import AsyncSessionLocal
+    from app.services.document_processor import DocumentProcessor
+
+    async with AsyncSessionLocal() as session:
         processor = DocumentProcessor(session)
-        asyncio.run(processor.process(document_id))
-    finally:
-        session.close()
+        await processor.process(document_id)
 
 
 @celery_app.task(name="analyze_event")

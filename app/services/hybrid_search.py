@@ -27,24 +27,62 @@ class EmbeddingService:
     def __init__(self):
         self.api_url = settings.EMBEDDING_API_URL
         self.dimension = settings.EMBEDDING_DIMENSION
+        self.sparse_dim = 250002  # BGE-m3 vocab size
 
-    async def encode(self, texts: List[str]) -> Tuple[List[List[float]], List[List[float]]]:
-        """Generate dense and sparse embeddings using BGE-m3 TEI service."""
+    async def encode(self, texts: List[str]) -> Tuple[List[List[float]], List[str]]:
+        """Generate dense and sparse embeddings using BGE-m3 TEI service.
+        
+        Returns:
+            dense: List of dense vectors (list of floats)
+            sparse: List of SPARSEVEC-formatted strings for pgvector
+        """
         if not texts:
             return [], []
-        
+
         async with httpx.AsyncClient(timeout=60.0) as client:
+            # Dense embeddings
             response = await client.post(
                 f"{self.api_url}/embed",
                 json={"inputs": texts, "truncate": True}
             )
             response.raise_for_status()
             data = response.json()
-            
-            dense = data.get("dense_embeddings", data.get("embeddings", []))
-            sparse = data.get("sparse_embeddings", [])
-            
-            return dense, sparse
+            dense = data if isinstance(data, list) else data.get("embeddings", [])
+
+            # Sparse embeddings (separate endpoint in TEI)
+            sparse_formatted: List[str] = []
+            try:
+                sparse_response = await client.post(
+                    f"{self.api_url}/embed_sparse",
+                    json={"inputs": texts, "truncate": True}
+                )
+                if sparse_response.status_code == 200:
+                    raw_sparse = sparse_response.json()
+                    sparse_formatted = [
+                        self._format_sparsevec(sv) for sv in raw_sparse
+                    ]
+            except Exception as e:
+                logger.debug(f"Sparse embedding endpoint not available: {e}")
+
+            return dense, sparse_formatted
+
+    def _format_sparsevec(self, sparse_entries: List[Dict[str, Any]]) -> str:
+        """Convert TEI sparse format to pgvector SPARSEVEC string.
+        
+        TEI returns: [{"index": 1234, "value": 0.56}, ...]
+        pgvector expects: {1234:0.56, 5678:0.34}/250002
+        """
+        if not sparse_entries:
+            return f"{{}}/{self.sparse_dim}"
+        
+        parts = []
+        for entry in sparse_entries:
+            idx = entry.get("index", 0)
+            val = entry.get("value", 0.0)
+            if val != 0.0:
+                parts.append(f"{idx}:{val}")
+        
+        return "{" + ",".join(parts) + "}/" + str(self.sparse_dim)
 
 
 class HybridSearchService:
@@ -79,7 +117,7 @@ class HybridSearchService:
             request.query, doc_ids
         )
         
-        results = self._fuse_results(
+        results = await self._fuse_results(
             dense_scores, sparse_scores, keyword_scores,
             request.include_all_versions, request.target_date
         )
@@ -133,30 +171,56 @@ class HybridSearchService:
             return {}, {}
         
         dense_vector = dense_emb[0]
+        sparse_vec_str = sparse_emb[0] if sparse_emb else f"{{}}/{self.embedding_service.sparse_dim}"
         
-        search_sql = text("""
+        # Dense search
+        dense_sql = text("""
             SELECT 
-                chunk_id,
-                (dense_vector <=> :query_vector)::float as dense_score,
-                (sparse_vector <=> :sparse_vector)::float as sparse_score
+                id as chunk_id,
+                CAST(dense_vector <=> CAST(:query_vector AS vector) AS float) as dense_score
             FROM document_chunks
             WHERE document_id = ANY(:doc_ids)
-            ORDER BY dense_vector <=> :query_vector
+              AND dense_vector IS NOT NULL
+            ORDER BY dense_vector <=> CAST(:query_vector AS vector)
             LIMIT 100
         """)
         
-        result = await self.db.execute(search_sql, {
+        dense_result = await self.db.execute(dense_sql, {
             "query_vector": str(dense_vector),
-            "sparse_vector": str(sparse_emb[0] if sparse_emb else []),
             "doc_ids": doc_ids
         })
         
         dense_scores = {}
-        sparse_scores = {}
-        for row in result.fetchall():
-            chunk_id, d_score, s_score = row
+        for row in dense_result.fetchall():
+            chunk_id, d_score = row
             dense_scores[chunk_id] = max(0, 1 - d_score)
-            sparse_scores[chunk_id] = max(0, 1 - s_score) if s_score else 0
+        
+        # Sparse search (separate query to handle NULL sparse vectors gracefully)
+        sparse_scores = {}
+        if sparse_vec_str and not sparse_vec_str.startswith("{}/"):
+            sparse_sql = text("""
+                SELECT 
+                    id as chunk_id,
+                    (sparse_vector <=> :query_sparse::sparsevec)::float as sparse_score
+                FROM document_chunks
+                WHERE document_id = ANY(:doc_ids)
+                  AND sparse_vector IS NOT NULL
+                ORDER BY sparse_vector <=> :query_sparse::sparsevec
+                LIMIT 100
+            """)
+            
+            try:
+                async with self.db.begin_nested():
+                    sparse_result = await self.db.execute(sparse_sql, {
+                        "query_sparse": sparse_vec_str,
+                        "doc_ids": doc_ids
+                    })
+                    
+                    for row in sparse_result.fetchall():
+                        chunk_id, s_score = row
+                        sparse_scores[chunk_id] = max(0, 1 - s_score) if s_score else 0
+            except Exception as e:
+                logger.warning(f"Sparse vector search failed: {e}")
         
         return dense_scores, sparse_scores
 
@@ -185,21 +249,22 @@ class HybridSearchService:
         """)
         
         try:
-            result = await self.db.execute(search_sql, {
-                "query": query,
-                "doc_ids": doc_ids
-            })
-            
-            keyword_scores = {}
-            for row in result.fetchall():
-                chunk_id, k_score = row
-                keyword_scores[chunk_id] = float(k_score) if k_score else 0
-            return keyword_scores
+            async with self.db.begin_nested():
+                result = await self.db.execute(search_sql, {
+                    "query": query,
+                    "doc_ids": doc_ids
+                })
+                
+                keyword_scores = {}
+                for row in result.fetchall():
+                    chunk_id, k_score = row
+                    keyword_scores[chunk_id] = float(k_score) if k_score else 0
+                return keyword_scores
         except Exception as e:
             logger.warning(f"PGroonga search failed, falling back: {e}")
             return {}
 
-    def _fuse_results(
+    async def _fuse_results(
         self, dense_scores: Dict[int, float], sparse_scores: Dict[int, float],
         keyword_scores: Dict[int, float], include_all: bool, target_date: Optional[str]
     ) -> List[HybridSearchResult]:
@@ -231,7 +296,7 @@ class HybridSearchService:
         
         results.sort(key=lambda x: x["final_score"], reverse=True)
         
-        return self._enrich_results(results)
+        return await self._enrich_results(results)
 
     def _get_ranks(self, scores: Dict[int, float]) -> Dict[int, int]:
         """Convert scores to ranks (1-based)."""
@@ -239,7 +304,7 @@ class HybridSearchService:
         return {chunk_id: rank for rank, (chunk_id, _) in enumerate(sorted_items, 1)}
 
     async def _enrich_results(
-        self, scored_results: List[Dict]
+        self, scored_results: List[Dict[str, Any]]
     ) -> List[HybridSearchResult]:
         """Enrich results with document information."""
         chunk_ids = [r["chunk_id"] for r in scored_results]

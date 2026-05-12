@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -15,21 +15,22 @@ from app.schemas.document import (
     ManualRefinedDocumentCreate, ManualRefinedDocumentResponse
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
 @router.post("", response_model=DocumentResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
-    title: str,
-    document_type: str,
-    customer_id: int,
+    title: str = Form(...),
+    document_type: str = Form(...),
+    customer_id: int = Form(...),
     file: UploadFile = File(...),
-    description: Optional[str] = None,
-    tags: Optional[str] = None,
+    description: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     storage: S3Storage = Depends(get_storage)
 ):
+    document_type = document_type.lower()
     content = await file.read()
     file_hash = hashlib.sha256(content).hexdigest()
     file_size = len(content)
@@ -49,8 +50,9 @@ async def upload_document(
         customer_id=customer_id,
         file_path=file_path,
         file_name=file.filename,
+        original_filename=file.filename,
         file_size=file_size,
-        file_hash=file_hash,
+        content_hash=file_hash,
         mime_type=file.content_type,
         protection_type=ProtectionType.NONE,
         processing_status=ProcessingStatus.UPLOADED,
@@ -61,15 +63,19 @@ async def upload_document(
     await db.commit()
     await db.refresh(document)
     
-    background_tasks.add_task(process_document, document.id, db)
+    background_tasks.add_task(_process_document_background, document.id)
     
     return document
 
 
-async def process_document(document_id: int, db: AsyncSession):
+async def _process_document_background(document_id: int):
+    """Run document processing with its own DB session (not the request session)."""
+    from app.core.database import AsyncSessionLocal
     from app.services.document_processor import DocumentProcessor
-    processor = DocumentProcessor(db)
-    await processor.process(document_id)
+
+    async with AsyncSessionLocal() as session:
+        processor = DocumentProcessor(session)
+        await processor.process(document_id)
 
 
 @router.get("", response_model=List[DocumentResponse])

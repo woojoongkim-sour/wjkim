@@ -34,8 +34,8 @@ class ToolCallResult(BaseModel):
 class AgenticRAGAgent:
     def __init__(self, db_session):
         self.db = db_session
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.model = settings.OPENAI_MODEL
+        self.client = AsyncOpenAI(api_key=settings.GEMINI_API_KEY, base_url=settings.GEMINI_BASE_URL)
+        self.model = settings.GEMINI_MODEL
         self.search_service = HybridSearchService(db_session)
         self.max_tool_calls = settings.AGENT_MAX_TOOL_CALLS
         self.timeout = settings.AGENT_TIMEOUT_SECONDS
@@ -308,16 +308,30 @@ class AdaptiveRAGOrchestrator:
         }
 
     async def _format_single_pass_response(self, search_result, query: str) -> str:
-        """Format single-pass search results into a response."""
+        """Generate a natural language response from single-pass search results."""
         if not search_result.results:
             return "검색 결과가 없습니다."
-        
-        parts = []
+
+        context_parts = []
         for i, item in enumerate(search_result.results[:5], 1):
-            parts.append(f"[{i}] {item.document_title}")
+            context_parts.append(f"[{i}] {item.document_title}")
             if item.section_title:
-                parts.append(f"   섹션: {item.section_title}")
-            parts.append(f"   {item.content[:300]}...")
-            parts.append("")
-        
-        return "\n".join(parts)
+                context_parts.append(f"   섹션: {item.section_title}")
+            context_parts.append(f"   {item.content[:500]}")
+            context_parts.append("")
+
+        context = "\n".join(context_parts)
+
+        tool_result = ToolCallResult(
+            tool_name="hybrid_search",
+            success=True,
+            results={"results": [
+                {
+                    "document_title": item.document_title,
+                    "content": item.content[:500],
+                }
+                for item in search_result.results[:5]
+            ], "total": len(search_result.results)}
+        )
+
+        return await self.agent.generate_response(query, [tool_result], 0)

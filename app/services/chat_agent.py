@@ -19,8 +19,8 @@ class ArchiveAnswerResponse(BaseModel):
 
 class ArchiveChatAgent:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.model = settings.OPENAI_MODEL
+        self.client = AsyncOpenAI(api_key=settings.GEMINI_API_KEY, base_url=settings.GEMINI_BASE_URL)
+        self.model = settings.GEMINI_MODEL
         self.system_prompt = """You are an expert assistant for MSP (Managed Service Provider) operations.
 Your role is to help operators find relevant information from the archive.
 

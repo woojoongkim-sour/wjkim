@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 class AnalysisService:
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.model = settings.OPENAI_MODEL
+        self.client = AsyncOpenAI(api_key=settings.GEMINI_API_KEY, base_url=settings.GEMINI_BASE_URL)
+        self.model = settings.GEMINI_MODEL
 
     async def generate_analysis_report(self, occurrence_id: int) -> AnalysisReportResponse:
         event = await self._load_event_with_relations(occurrence_id)

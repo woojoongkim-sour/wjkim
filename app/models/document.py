@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from pgvector.sqlalchemy import Vector, SparseVector
+from pgvector.sqlalchemy import Vector, SPARSEVEC
 from app.core.database import Base
 from app.models.enums import ProtectionType, ProcessingStatus, ProcessingCapability, DocumentType
 import uuid
@@ -114,7 +114,7 @@ class DocumentChunk(Base):
     content_hash = Column(String(64))  # email chunk dedup (NULL for normal docs)
 
     dense_vector = Column(Vector(1024))  # BGE-m3 dense embedding
-    sparse_vector = Column(SparseVector(250002))  # BGE-m3 sparse embedding (vocab size)
+    sparse_vector = Column(SPARSEVEC(250002))  # BGE-m3 sparse embedding (vocab size)
 
     metadata_json = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -91,11 +91,11 @@ class HybridSearchService:
     ) -> List[SearchResult]:
         embedding = await self.embedding_service.embed_texts([query])
         dense_vector: List[float] = []
-        sparse_vector: Dict[str, float] = {}
+        sparse_vector: str = ""
         if embedding and len(embedding) > 0:
             res = embedding[0]
             dense_vector = getattr(res, "dense_vector", []) or []
-            sparse_vector = getattr(res, "sparse_vector", {}) or {}
+            sparse_vector = getattr(res, "sparse_vector", "") or ""
 
         san_filters = await self._sanitize_filters(filters)
 
@@ -107,11 +107,11 @@ class HybridSearchService:
         dense_sql = (
             "SELECT dc.id AS chunk_id, dc.document_id, d.title AS document_title, dc.section_title, dc.content, "
             "d.customer_id AS customer_id, d.created_at AS created_at, "
-            "(1 - (dc.dense_vector <=> :query_vector)) AS dense_score "
+            "(1 - (dc.dense_vector <=> :query_vector::vector)) AS dense_score "
             "FROM document_chunks AS dc JOIN documents AS d ON dc.document_id = d.id "
         )
-        dense_sql += " WHERE d.customer_id = :cid "
-        dense_params: Dict[str, Any] = {"cid": customer_id, "query_vector": dense_vector}
+        dense_sql += " WHERE d.customer_id = :cid AND dc.dense_vector IS NOT NULL "
+        dense_params: Dict[str, Any] = {"cid": customer_id, "query_vector": str(dense_vector)}
         if not include_all_versions:
             dense_sql += " AND d.is_latest = TRUE"
         if san_filters.get("category_ids"):
@@ -134,10 +134,10 @@ class HybridSearchService:
         sparse_sql = (
             "SELECT dc.id AS chunk_id, dc.document_id, d.title AS document_title, dc.section_title, dc.content, "
             "d.customer_id AS customer_id, d.created_at AS created_at, "
-            "(1 - (dc.sparse_vector <=> :query_sparse)) AS sparse_score "
+            "(1 - (dc.sparse_vector <=> :query_sparse::sparsevec)) AS sparse_score "
             "FROM document_chunks AS dc JOIN documents AS d ON dc.document_id = d.id "
         )
-        sparse_sql += " WHERE d.customer_id = :cid "
+        sparse_sql += " WHERE d.customer_id = :cid AND dc.sparse_vector IS NOT NULL "
         sparse_params: Dict[str, Any] = {"cid": customer_id, "query_sparse": sparse_vector}
         if not include_all_versions:
             sparse_sql += " AND d.is_latest = TRUE"
@@ -286,7 +286,7 @@ class HybridSearchService:
     async def cross_search(self, query: str, filters: Optional[SearchFilters] = None, limit: int = 20) -> List[SearchResult]:
         embedding = await self.embedding_service.embed_texts([query])
         dense_vector = (embedding[0].dense_vector if embedding and len(embedding) > 0 else [])
-        sparse_vector = (embedding[0].sparse_vector if embedding and len(embedding) > 0 else {})
+        sparse_vector = (embedding[0].sparse_vector if embedding and len(embedding) > 0 else "")
         san_filters = await self._sanitize_filters(filters)
 
         async def _exec(sql: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -296,12 +296,12 @@ class HybridSearchService:
         dense_sql = (
             "SELECT dc.id AS chunk_id, dc.document_id, d.title AS document_title, dc.section_title, dc.content, "
             "d.customer_id AS customer_id, d.created_at AS created_at, "
-            "(1 - (dc.dense_vector <=> :query_vector)) AS dense_score "
+            "(1 - (dc.dense_vector <=> :query_vector::vector)) AS dense_score "
             "FROM document_chunks AS dc JOIN documents AS d ON dc.document_id = d.id "
-            "WHERE 1=1 "
+            "WHERE dc.dense_vector IS NOT NULL "
         )
         dense_sql += " ORDER BY dense_score DESC LIMIT :limit"
-        dense_params = {"query_vector": dense_vector, "limit": limit}
+        dense_params = {"query_vector": str(dense_vector), "limit": limit}
         try:
             dense_rows = await _exec(dense_sql, dense_params)
         except Exception as e:
@@ -311,8 +311,9 @@ class HybridSearchService:
         sparse_sql = (
             "SELECT dc.id AS chunk_id, dc.document_id, d.title AS document_title, dc.section_title, dc.content, "
             "d.customer_id AS customer_id, d.created_at AS created_at, "
-            "(1 - (dc.sparse_vector <=> :query_sparse)) AS sparse_score "
+            "(1 - (dc.sparse_vector <=> :query_sparse::sparsevec)) AS sparse_score "
             "FROM document_chunks AS dc JOIN documents AS d ON dc.document_id = d.id "
+            "WHERE dc.sparse_vector IS NOT NULL "
             "ORDER BY sparse_score DESC LIMIT :limit"
         )
         sparse_params = {"query_sparse": sparse_vector, "limit": limit}

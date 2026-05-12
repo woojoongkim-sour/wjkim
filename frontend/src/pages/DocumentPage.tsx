@@ -1,14 +1,11 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   hybridSearch,
   adaptiveRag,
   uploadDocument,
   listDocuments,
-  getDocumentVersions,
-  SearchResult,
-  Document,
 } from '../api/archive-client'
+import type { SearchResult, Document } from '../api/archive-client'
 
 interface ChatMessage {
   role: 'user' | 'assistant'

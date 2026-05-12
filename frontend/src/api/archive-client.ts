@@ -5,10 +5,7 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-let authToken: string | null = null
-
 export function setAuthToken(token: string | null) {
-  authToken = token
   if (token) {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`
   } else {

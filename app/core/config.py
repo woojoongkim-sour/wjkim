@@ -21,9 +21,10 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "msp-archive"
     S3_REGION: str = "us-east-1"
 
-    # OpenAI (LLM only - embeddings handled by BGE-m3 TEI)
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o"
+    # Gemini (LLM only - embeddings handled by BGE-m3 TEI)
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
     # BGE-m3 Embedding Service (HuggingFace TEI)
     EMBEDDING_API_URL: str = "http://localhost:8080"

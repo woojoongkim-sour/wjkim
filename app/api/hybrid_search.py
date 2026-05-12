@@ -3,8 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.core.database import get_db
-from app.models.user import User
-from app.services.auth import get_current_active_user
 from app.services.hybrid_search import HybridSearchService
 from app.services.agentic_rag import AdaptiveRAGOrchestrator
 from app.schemas.search import (
@@ -19,7 +17,6 @@ router = APIRouter(prefix="/search", tags=["Search"])
 async def hybrid_search(
     request: HybridSearchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
 ):
     """Execute 3-way hybrid search (Dense + Sparse + Keyword with RRF fusion)."""
     service = HybridSearchService(db)
@@ -30,7 +27,6 @@ async def hybrid_search(
 async def version_search(
     request: VersionSearchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
 ):
     """Execute time-based version search."""
     service = HybridSearchService(db)
@@ -41,7 +37,6 @@ async def version_search(
 async def cross_search(
     request: CrossSearchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
 ):
     """Search across all customers for similar cases."""
     service = HybridSearchService(db)
@@ -54,7 +49,6 @@ async def adaptive_rag(
     customer_id: int,
     cross_search: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
 ):
     """Execute adaptive RAG with complexity-based routing."""
     orchestrator = AdaptiveRAGOrchestrator(db)

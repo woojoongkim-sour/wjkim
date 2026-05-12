@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import List, Optional
 from datetime import datetime
+import hashlib
 
 from app.core.database import get_db
 from app.core.storage import get_storage, S3Storage
@@ -18,7 +19,7 @@ from app.schemas.ai import EnrichEvidence, LimitationFlag
 from app.core.audit import create_audit_log
 from app.models.enums import AuditAction
 
-router = APIRouter()
+router = APIRouter(prefix="/documents-v2", tags=["Documents V2"])
 
 
 @router.post("", response_model=DocumentResponse)
@@ -55,17 +56,15 @@ async def upload_document(
     else:
         processing_status = ProcessingStatus.UPLOADED
     
-    import hashlib
-    
     document = Document(
         title=title,
         description=description,
         document_type=document_type,
         customer_id=customer_id,
         file_path=file_path,
-        file_name=file.filename,
+        original_filename=file.filename,
         file_size=file_size,
-        file_hash=file_hash,
+        content_hash=file_hash,
         mime_type=file.content_type,
         protection_type=protection_type,
         processing_status=processing_status,
@@ -120,7 +119,7 @@ async def reprocess_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    await DocumentChunk.filter(DocumentChunk.document_id == document_id).delete()
+    await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
     
     document.processing_status = ProcessingStatus.UPLOADED
     document.processing_error_reason = None

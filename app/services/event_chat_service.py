@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 class EventChatService:
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.model = settings.OPENAI_MODEL
+        self.client = AsyncOpenAI(api_key=settings.GEMINI_API_KEY, base_url=settings.GEMINI_BASE_URL)
+        self.model = settings.GEMINI_MODEL
 
     async def chat(
         self, occurrence_id: int, request: EventChatRequest
