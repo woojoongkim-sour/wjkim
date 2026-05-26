@@ -329,7 +329,7 @@ class HybridSearchService:
                 document_id=chunk.document_id,
                 document_title=chunk.document_title or "Untitled",
                 section_title=chunk.section_title,
-                content=chunk.content[:500] + "..." if len(chunk.content) > 500 else chunk.content,
+                content=chunk.content,
                 customer_id=chunk.customer_id,
                 score=scored["final_score"],
                 dense_score=scored.get("dense_score"),

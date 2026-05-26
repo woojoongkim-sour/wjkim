@@ -45,6 +45,12 @@ class DocumentType(str, Enum):
     INCIDENT_REPORT = "incident_report"
     WORK_REPORT = "work_report"
     CHANGE_LOG = "change_log"
+    WORK_RESULT = "work_result"
+    STARTUP_PROCEDURE = "startup_procedure"
+    SLA = "sla"
+    RESOURCE_STATUS = "resource_status"
+    MONTHLY_REPORT = "monthly_report"
+    RFP = "rfp"
     OTHER = "other"
 
 

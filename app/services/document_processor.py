@@ -123,6 +123,14 @@ class DocumentProcessor:
             if "wordprocessingml" in mime or filename.endswith((".docx", ".doc")):
                 return self._extract_docx(file_bytes)
 
+            # Excel spreadsheets
+            if "spreadsheetml" in mime or "ms-excel" in mime or filename.endswith((".xlsx", ".xls")):
+                return self._extract_xlsx(file_bytes, filename)
+
+            # PowerPoint presentations
+            if "presentationml" in mime or "ms-powerpoint" in mime or filename.endswith((".pptx", ".ppt")):
+                return self._extract_pptx(file_bytes)
+
             # Fallback: try as text
             logger.warning(f"Unknown mime type '{mime}' for document {document.id}, trying text decode")
             return self._extract_text(file_bytes)
@@ -161,6 +169,119 @@ class DocumentProcessor:
         doc = DocxDocument(io.BytesIO(file_bytes))
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
         return "\n\n".join(paragraphs)
+
+    def _extract_xlsx(self, file_bytes: bytes, filename: str = "") -> str:
+        """Extract text from .xlsx/.xls files.
+
+        Each sheet is converted to readable text with rows represented
+        as 'header: value' pairs so the content is embedding-friendly.
+        """
+        import io
+
+        # .xls (legacy) via xlrd
+        if filename.endswith(".xls"):
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            parts: list[str] = []
+            for sheet in wb.sheets():
+                if sheet.nrows == 0:
+                    continue
+                header = [str(sheet.cell_value(0, c)).strip() for c in range(sheet.ncols)]
+                sheet_lines = [f"[시트: {sheet.name}]"]
+                for r in range(1, sheet.nrows):
+                    row_vals = [str(sheet.cell_value(r, c)).strip() for c in range(sheet.ncols)]
+                    if not any(row_vals):
+                        continue
+                    pairs = [f"{h}: {v}" for h, v in zip(header, row_vals) if v]
+                    if pairs:
+                        sheet_lines.append(" | ".join(pairs))
+                if len(sheet_lines) > 1:
+                    parts.append("\n".join(sheet_lines))
+            text = "\n\n".join(parts)
+            logger.info(f"XLS extraction: {wb.nsheets} sheets, {len(text)} chars")
+            return text
+
+        # .xlsx via openpyxl
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        parts: list[str] = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+
+            # Find header row: first row with 2+ non-empty cells
+            header_idx = 0
+            for i, row in enumerate(rows):
+                non_empty = sum(1 for c in row if c is not None and str(c).strip())
+                if non_empty >= 2:
+                    header_idx = i
+                    break
+
+            header = [str(c).strip() if c is not None else "" for c in rows[header_idx]]
+            sheet_lines = [f"[시트: {sheet_name}]"]
+
+            for row in rows[header_idx + 1:]:
+                vals = [str(c).strip() if c is not None else "" for c in row]
+                if not any(vals):
+                    continue
+                # Skip summary/total rows
+                first_val = vals[0].lower() if vals[0] else ""
+                if any(kw in first_val for kw in ("합계", "소계", "total", "sum", "계")):
+                    continue
+                pairs = [f"{h}: {v}" for h, v in zip(header, vals) if v and h]
+                if pairs:
+                    sheet_lines.append(" | ".join(pairs))
+
+            if len(sheet_lines) > 1:
+                parts.append("\n".join(sheet_lines))
+
+        wb.close()
+        text = "\n\n".join(parts)
+        logger.info(f"XLSX extraction: {len(wb.sheetnames)} sheets, {len(text)} chars")
+        return text
+
+    def _extract_pptx(self, file_bytes: bytes) -> str:
+        """Extract text from .pptx files (slide text + speaker notes)."""
+        import io
+        from pptx import Presentation
+
+        prs = Presentation(io.BytesIO(file_bytes))
+        parts: list[str] = []
+
+        for slide_num, slide in enumerate(prs.slides, 1):
+            slide_texts: list[str] = []
+
+            # Shape text (titles, text boxes, tables)
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            slide_texts.append(text)
+                if shape.has_table:
+                    table = shape.table
+                    for row in table.rows:
+                        row_text = " | ".join(
+                            cell.text.strip() for cell in row.cells if cell.text.strip()
+                        )
+                        if row_text:
+                            slide_texts.append(row_text)
+
+            # Speaker notes
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                notes = slide.notes_slide.notes_text_frame.text.strip()
+                if notes:
+                    slide_texts.append(f"(노트: {notes})")
+
+            if slide_texts:
+                parts.append(f"[슬라이드 {slide_num}]\n" + "\n".join(slide_texts))
+
+        text = "\n\n".join(parts)
+        logger.info(f"PPTX extraction: {len(prs.slides)} slides, {len(text)} chars")
+        return text
 
     def _chunk_content(self, content: str) -> List[str]:
         """Split content into overlapping chunks."""

@@ -231,12 +231,12 @@ Respond in Korean when the query is in Korean."""
             context_parts.append(f"[Search {i}] Tool: {result.tool_name}")
             
             if result.results and result.results.get("results"):
-                for item in result.results["results"][:3]:
+                for item in result.results["results"]:
                     context_parts.append(
                         f"  - {item.get('document_title', 'Untitled')}"
                     )
                     if item.get("content"):
-                        context_parts.append(f"    {item['content'][:200]}...")
+                        context_parts.append(f"    {item['content']}")
         
         context = "\n".join(context_parts) if context_parts else "No relevant documents found."
         
@@ -313,11 +313,11 @@ class AdaptiveRAGOrchestrator:
             return "검색 결과가 없습니다."
 
         context_parts = []
-        for i, item in enumerate(search_result.results[:5], 1):
+        for i, item in enumerate(search_result.results[:10], 1):
             context_parts.append(f"[{i}] {item.document_title}")
             if item.section_title:
                 context_parts.append(f"   섹션: {item.section_title}")
-            context_parts.append(f"   {item.content[:500]}")
+            context_parts.append(f"   {item.content}")
             context_parts.append("")
 
         context = "\n".join(context_parts)
@@ -328,9 +328,9 @@ class AdaptiveRAGOrchestrator:
             results={"results": [
                 {
                     "document_title": item.document_title,
-                    "content": item.content[:500],
+                    "content": item.content,
                 }
-                for item in search_result.results[:5]
+                for item in search_result.results[:10]
             ], "total": len(search_result.results)}
         )
 
